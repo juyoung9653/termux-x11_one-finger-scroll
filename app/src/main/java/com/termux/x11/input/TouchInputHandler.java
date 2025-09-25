@@ -642,6 +642,13 @@ public class TouchInputHandler {
                 mSuppressCursorMovement = true;
                 return true;
             }
+            // NEW: 한 손가락 스크롤(드래그가 아닌 경우)
+            // - 드래그(mIsDragging)는 그대로 유지해야 하므로 제외
+            if (pointerCount == 1 && !mIsDragging) {
+                mInputStrategy.onScroll(distanceX, distanceY);
+                mSuppressCursorMovement = true;
+                return true;
+            }
 
             if (pointerCount != 1 || mSuppressCursorMovement)
                 return false;
