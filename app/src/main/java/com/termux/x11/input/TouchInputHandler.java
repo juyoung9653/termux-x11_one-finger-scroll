@@ -109,6 +109,7 @@ public class TouchInputHandler {
     private boolean pinchZoomActive = false;
     private float pinchLastSpan = 0f;
     private boolean pinchCtrlPressed = false;
+    private boolean oneFingerScrollActive = false;
 
     private static final float PINCH_MIN_SPAN_DELTA = 1.0f;
 
@@ -345,6 +346,7 @@ public class TouchInputHandler {
                     mSuppressCursorMovement = false;
                     mSwipeCompleted = false;
                     mIsDragging = false;
+                    oneFingerScrollActive = false;
                     resetPinchZoom();
                     break;
 
@@ -357,15 +359,18 @@ public class TouchInputHandler {
 
                 case MotionEvent.ACTION_POINTER_DOWN:
                     mTotalMotionY = 0;
+                    oneFingerScrollActive = false;
                     break;
 
                 case MotionEvent.ACTION_POINTER_UP:
+                    oneFingerScrollActive = false;
                     resetPinchZoom();
                     mSuppressCursorMovement = false;
                     break;
 
                 case MotionEvent.ACTION_UP:
                 case MotionEvent.ACTION_CANCEL:
+                    oneFingerScrollActive = false;
                     resetPinchZoom();
                     break;
 
@@ -741,6 +746,14 @@ public class TouchInputHandler {
             // NEW: 한 손가락 스크롤(드래그가 아닌 경우)
             // - 드래그(mIsDragging)는 그대로 유지해야 하므로 제외
             if (pointerCount == 1 && !mIsDragging && oneFingerScrollEnabled) {
+                if (!oneFingerScrollActive) {
+                    oneFingerScrollActive = true;
+                    PointF cursor = mRenderData.getCursorPosition();
+                    float targetX = e2.getX() * mRenderData.scale.x;
+                    float targetY = e2.getY() * mRenderData.scale.y;
+                    if (Math.abs(cursor.x - targetX) > 1f || Math.abs(cursor.y - targetY) > 1f)
+                        moveCursorToScreenPoint(e2.getX(), e2.getY());
+                }
                 resetPinchZoom();
                 mInputStrategy.onScroll(distanceX, distanceY);
                 mSuppressCursorMovement = true;
