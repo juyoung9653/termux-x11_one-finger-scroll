@@ -349,6 +349,9 @@ public class LoriePreferences extends AppCompatActivity implements PreferenceFra
 
             setEnabled("scaleTouchpad", "1".equals(prefs.touchMode.get()) && !"native".equals(prefs.displayResolutionMode.get()));
             setEnabled("showMouseHelper", "1".equals(prefs.touchMode.get()));
+            
+            // Touch gesture preferences are enabled for all touch modes but trackpad works better for scrolling
+            setEnabled("pinchZoomSensitivity", prefs.enablePinchZoom.get());
 
             boolean requestNotificationPermissionVisible =
                     Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU

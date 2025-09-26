@@ -519,6 +519,7 @@ public class TouchInputHandler {
     private boolean handlePinchZoom(MotionEvent event) {
         if (!mEnablePinchZoom || event.getPointerCount() != 2) {
             mIsPinching = false;
+            mLastPinchDistance = 0;
             return false;
         }
         
@@ -531,24 +532,27 @@ public class TouchInputHandler {
         
         float distanceDelta = currentDistance - mLastPinchDistance;
         
-        // Only handle significant distance changes to avoid noise
-        if (Math.abs(distanceDelta) > 10) {
+        // Only handle significant distance changes to avoid noise and excessive events
+        if (Math.abs(distanceDelta) > 15) {
             mIsPinching = true;
             
-            // Convert distance change to zoom wheel events
+            // Convert distance change to zoom wheel events with sensitivity scaling
             // Positive delta = zoom in (negative wheel), negative delta = zoom out (positive wheel)
-            float wheelDelta = -(distanceDelta * mPinchZoomSensitivity);
+            float wheelDelta = -(distanceDelta * mPinchZoomSensitivity * 0.1f);
             
-            // Send Ctrl+Mouse wheel for zoom - need to send Ctrl key down, wheel event, then Ctrl key up
-            mInjector.sendKeyEvent(new android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_CTRL_LEFT));
+            // Clamp wheel delta to reasonable range to prevent extreme zoom
+            wheelDelta = Math.max(-50, Math.min(50, wheelDelta));
+            
+            // Send Ctrl+Mouse wheel for zoom - use LorieView's sendKeyEvent method
+            mActivity.getLorieView().sendKeyEvent(0, android.view.KeyEvent.KEYCODE_CTRL_LEFT, true);
             mInjector.sendMouseWheelEvent(0, wheelDelta);
-            mInjector.sendKeyEvent(new android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_CTRL_LEFT));
+            mActivity.getLorieView().sendKeyEvent(0, android.view.KeyEvent.KEYCODE_CTRL_LEFT, false);
             
             mLastPinchDistance = currentDistance;
             return true;
         }
         
-        return false;
+        return mIsPinching; // Return true if we're still in a pinch gesture to suppress other gestures
     }
 
     public BiConsumer<Integer, Boolean> extractUserActionFromPreferences(Prefs p, String name) {
