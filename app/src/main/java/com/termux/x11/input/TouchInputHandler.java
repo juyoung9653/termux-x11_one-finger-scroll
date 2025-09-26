@@ -93,6 +93,15 @@ public class TouchInputHandler {
     private final MainActivity mActivity;
     private final DisplayMetrics mMetrics = new DisplayMetrics();
 
+    // Touch gesture preferences
+    private boolean mEnableSingleFingerScroll = false;
+    private boolean mEnablePinchZoom = true;
+    private float mPinchZoomSensitivity = 1.0f;
+
+    // For pinch-to-zoom gesture tracking
+    private float mLastPinchDistance = 0;
+    private boolean mIsPinching = false;
+
     private final BiConsumer<Integer, Boolean> noAction = (key, down) -> {};
     private BiConsumer<Integer, Boolean> swipeUpAction = noAction, swipeDownAction = noAction,
             volumeUpAction = noAction, volumeDownAction = noAction, backButtonAction = noAction,
@@ -335,6 +344,9 @@ public class TouchInputHandler {
                     mSuppressCursorMovement = false;
                     mSwipeCompleted = false;
                     mIsDragging = false;
+                    // Reset pinch state on new touch
+                    mLastPinchDistance = 0;
+                    mIsPinching = false;
                     break;
 
                 case MotionEvent.ACTION_SCROLL:
@@ -346,6 +358,20 @@ public class TouchInputHandler {
 
                 case MotionEvent.ACTION_POINTER_DOWN:
                     mTotalMotionY = 0;
+                    // Reset pinch state when a new pointer is added
+                    mLastPinchDistance = 0;
+                    break;
+                    
+                case MotionEvent.ACTION_POINTER_UP:
+                    // Reset pinch state when a pointer is removed
+                    mLastPinchDistance = 0;
+                    mIsPinching = false;
+                    break;
+                    
+                case MotionEvent.ACTION_UP:
+                    // Reset pinch state when all pointers are up
+                    mLastPinchDistance = 0;
+                    mIsPinching = false;
                     break;
 
                 default:
@@ -434,6 +460,12 @@ public class TouchInputHandler {
         mInjector.stylusIsMouse = p.stylusIsMouse.get();
         mInjector.stylusButtonContactModifierMode = p.stylusButtonContactModifierMode.get();
         mInjector.pauseKeyInterceptingWithEsc = p.pauseKeyInterceptingWithEsc.get();
+        
+        // Load touch gesture preferences
+        mEnableSingleFingerScroll = p.enableSingleFingerScroll.get();
+        mEnablePinchZoom = p.enablePinchZoom.get();
+        mPinchZoomSensitivity = ((float) p.pinchZoomSensitivity.get()) / 100.0f;
+        
         switch (p.transformCapturedPointer.get()) {
             case "c":
                 capturedPointerTransformation = CapturedPointerTransformation.CLOCKWISE;
@@ -468,6 +500,55 @@ public class TouchInputHandler {
 
         if(mTouchpadHandler != null)
             mTouchpadHandler.reloadPreferences(p);
+    }
+
+    /**
+     * Calculate distance between two fingers for pinch-to-zoom detection
+     */
+    private float calculatePinchDistance(MotionEvent event) {
+        if (event.getPointerCount() < 2) return 0;
+        
+        float dx = event.getX(0) - event.getX(1);
+        float dy = event.getY(0) - event.getY(1);
+        return (float) Math.sqrt(dx * dx + dy * dy);
+    }
+
+    /**
+     * Handle pinch-to-zoom gesture by converting to Ctrl+Mouse wheel events
+     */
+    private boolean handlePinchZoom(MotionEvent event) {
+        if (!mEnablePinchZoom || event.getPointerCount() != 2) {
+            mIsPinching = false;
+            return false;
+        }
+        
+        float currentDistance = calculatePinchDistance(event);
+        
+        if (mLastPinchDistance == 0) {
+            mLastPinchDistance = currentDistance;
+            return false;
+        }
+        
+        float distanceDelta = currentDistance - mLastPinchDistance;
+        
+        // Only handle significant distance changes to avoid noise
+        if (Math.abs(distanceDelta) > 10) {
+            mIsPinching = true;
+            
+            // Convert distance change to zoom wheel events
+            // Positive delta = zoom in (negative wheel), negative delta = zoom out (positive wheel)
+            float wheelDelta = -(distanceDelta * mPinchZoomSensitivity);
+            
+            // Send Ctrl+Mouse wheel for zoom - need to send Ctrl key down, wheel event, then Ctrl key up
+            mInjector.sendKeyEvent(new android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_CTRL_LEFT));
+            mInjector.sendMouseWheelEvent(0, wheelDelta);
+            mInjector.sendKeyEvent(new android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_CTRL_LEFT));
+            
+            mLastPinchDistance = currentDistance;
+            return true;
+        }
+        
+        return false;
     }
 
     public BiConsumer<Integer, Boolean> extractUserActionFromPreferences(Prefs p, String name) {
@@ -642,9 +723,21 @@ public class TouchInputHandler {
                 mSuppressCursorMovement = true;
                 return true;
             }
-            // NEW: 한 손가락 스크롤(드래그가 아닌 경우)
-            // - 드래그(mIsDragging)는 그대로 유지해야 하므로 제외
-            if (pointerCount == 1 && !mIsDragging) {
+            
+            // Handle pinch-to-zoom gesture for two fingers when not swiping
+            if (pointerCount == 2 && !mSwipePinchDetector.isSwiping()) {
+                // Pass the motion event to the SwipeDetector to determine gesture type
+                mSwipePinchDetector.onTouchEvent(e2);
+                
+                // If still not determined as swiping, handle as potential pinch
+                if (!mSwipePinchDetector.isSwiping() && handlePinchZoom(e2)) {
+                    mSuppressCursorMovement = true;
+                    return true;
+                }
+            }
+            
+            // Handle single finger scroll if enabled and not dragging
+            if (pointerCount == 1 && !mIsDragging && mEnableSingleFingerScroll) {
                 mInputStrategy.onScroll(distanceX, distanceY);
                 mSuppressCursorMovement = true;
                 return true;
