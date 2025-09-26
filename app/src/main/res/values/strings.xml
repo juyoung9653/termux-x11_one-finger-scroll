@@ -66,6 +66,12 @@ E.g. <b>META</b> for <i>META key</i>, \n
     <string name="pref_transformCapturedPointer">Transform captured pointer movements</string>
     <string name="pref_capturedPointerSpeedFactor">Captured pointer speed factor, %</string>
     <string name="pref_tapToMove">Enable tap-to-move for touchpads</string>
+    <string name="pref_oneFingerScroll">Single-finger drag scroll</string>
+    <string name="pref_oneFingerScroll_summary">Drag with one finger to send scroll wheel events.</string>
+    <string name="pref_pinchZoom">Two-finger pinch zoom</string>
+    <string name="pref_pinchZoom_summary">Pinch gesture sends Ctrl + mouse wheel for zoom on the remote display.</string>
+    <string name="pref_pinchZoomSensitivity">Pinch zoom sensitivity, %</string>
+    <string name="pref_pinchZoomSensitivity_summary">Adjust how quickly zoom changes while pinching.</string>
 
     <string name="pref_showAdditionalKbd">Show additional keyboard</string>
     <string name="pref_showAdditionalKbd_summary">Show keyboard with additional keys.</string>

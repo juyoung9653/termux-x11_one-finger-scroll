@@ -17,6 +17,7 @@ import android.graphics.PointF;
 import android.hardware.display.DisplayManager;
 import android.hardware.input.InputManager;
 import android.os.Handler;
+import android.os.SystemClock;
 import android.os.Build;
 import android.util.DisplayMetrics;
 import android.view.Display;
@@ -101,6 +102,15 @@ public class TouchInputHandler {
     private static final int KEY_BACK = 158;
 
     private boolean keyIntercepting = false;
+
+    private boolean oneFingerScrollEnabled = true;
+    private boolean pinchZoomEnabled = false;
+    private float pinchZoomSensitivityFactor = 1.0f;
+    private boolean pinchZoomActive = false;
+    private float pinchLastSpan = 0f;
+    private boolean pinchCtrlPressed = false;
+
+    private static final float PINCH_MIN_SPAN_DELTA = 1.0f;
 
     /**
      * Used for tracking swipe gestures. Only the Y-direction is needed for responding to swipe-up
@@ -335,6 +345,7 @@ public class TouchInputHandler {
                     mSuppressCursorMovement = false;
                     mSwipeCompleted = false;
                     mIsDragging = false;
+                    resetPinchZoom();
                     break;
 
                 case MotionEvent.ACTION_SCROLL:
@@ -346,6 +357,16 @@ public class TouchInputHandler {
 
                 case MotionEvent.ACTION_POINTER_DOWN:
                     mTotalMotionY = 0;
+                    break;
+
+                case MotionEvent.ACTION_POINTER_UP:
+                    resetPinchZoom();
+                    mSuppressCursorMovement = false;
+                    break;
+
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL:
+                    resetPinchZoom();
                     break;
 
                 default:
@@ -434,6 +455,11 @@ public class TouchInputHandler {
         mInjector.stylusIsMouse = p.stylusIsMouse.get();
         mInjector.stylusButtonContactModifierMode = p.stylusButtonContactModifierMode.get();
         mInjector.pauseKeyInterceptingWithEsc = p.pauseKeyInterceptingWithEsc.get();
+        oneFingerScrollEnabled = p.oneFingerScroll.get();
+        pinchZoomEnabled = p.pinchZoom.get();
+        pinchZoomSensitivityFactor = Math.max(0.1f, ((float) p.pinchZoomSensitivity.get()) / 100f);
+        if (!pinchZoomEnabled)
+            resetPinchZoom();
         switch (p.transformCapturedPointer.get()) {
             case "c":
                 capturedPointerTransformation = CapturedPointerTransformation.CLOCKWISE;
@@ -567,6 +593,65 @@ public class TouchInputHandler {
         }
     }
 
+    private float calculateSpan(MotionEvent event) {
+        if (event.getPointerCount() < 2)
+            return 0f;
+        float dx = event.getX(0) - event.getX(1);
+        float dy = event.getY(0) - event.getY(1);
+        return (float) Math.hypot(dx, dy);
+    }
+
+    private void ensureCtrlModifier(boolean pressed) {
+        if (pinchCtrlPressed == pressed)
+            return;
+        long eventTime = SystemClock.uptimeMillis();
+        KeyEvent event = new KeyEvent(eventTime, eventTime,
+                pressed ? KeyEvent.ACTION_DOWN : KeyEvent.ACTION_UP,
+                KeyEvent.KEYCODE_CTRL_LEFT,
+                0,
+                pressed ? KeyEvent.META_CTRL_LEFT_ON | KeyEvent.META_CTRL_ON : 0);
+        mInjector.sendKeyEvent(event);
+        pinchCtrlPressed = pressed;
+    }
+
+    private void resetPinchZoom() {
+        if (!pinchZoomActive && !pinchCtrlPressed)
+            return;
+        pinchZoomActive = false;
+        pinchLastSpan = 0f;
+        ensureCtrlModifier(false);
+    }
+
+    private boolean handlePinchZoom(MotionEvent event) {
+        if (!pinchZoomEnabled) {
+            resetPinchZoom();
+            return false;
+        }
+
+        if (event.getPointerCount() < 2) {
+            resetPinchZoom();
+            return false;
+        }
+
+        float span = calculateSpan(event);
+        if (!pinchZoomActive) {
+            pinchZoomActive = true;
+            pinchLastSpan = span;
+            ensureCtrlModifier(true);
+            return true;
+        }
+
+        float delta = span - pinchLastSpan;
+        pinchLastSpan = span;
+
+        if (Math.abs(delta) < PINCH_MIN_SPAN_DELTA)
+            return true;
+
+        float wheelDelta = -delta * pinchZoomSensitivityFactor;
+        mInjector.sendMouseWheelEvent(0, wheelDelta);
+        return true;
+    }
+
     /** Processes a (multi-finger) swipe gesture. */
     private boolean onSwipe() {
         if (mTotalMotionY > mSwipeThreshold)
@@ -623,6 +708,7 @@ public class TouchInputHandler {
 
 
             if (pointerCount >= 3 && !mSwipeCompleted) {
+                resetPinchZoom();
                 // Note that distance values are reversed. For example, dragging a finger in the
                 // direction of increasing Y coordinate (downwards) results in distanceY being
                 // negative.
@@ -630,21 +716,32 @@ public class TouchInputHandler {
                 return onSwipe();
             }
 
-            if (pointerCount == 2 && mSwipePinchDetector.isSwiping()) {
-                if (!(mInputStrategy instanceof InputStrategyInterface.TrackpadInputStrategy)) {
-                    // Ensure the cursor is located at the coordinates of the original event,
-                    // otherwise the target window may not receive the scroll event correctly.
-                    moveCursorToScreenPoint(e1.getX(), e1.getY());
-                }
-                mInputStrategy.onScroll(distanceX, distanceY);
+            if (pointerCount == 2) {
+                if (mSwipePinchDetector.isSwiping()) {
+                    resetPinchZoom();
+                    if (!(mInputStrategy instanceof InputStrategyInterface.TrackpadInputStrategy)) {
+                        // Ensure the cursor is located at the coordinates of the original event,
+                        // otherwise the target window may not receive the scroll event correctly.
+                        moveCursorToScreenPoint(e1.getX(), e1.getY());
+                    }
+                    mInputStrategy.onScroll(distanceX, distanceY);
 
-                // Prevent the cursor being moved or flung by the gesture.
-                mSuppressCursorMovement = true;
-                return true;
+                    // Prevent the cursor being moved or flung by the gesture.
+                    mSuppressCursorMovement = true;
+                    return true;
+                }
+
+                if (handlePinchZoom(e2)) {
+                    mSuppressCursorMovement = true;
+                    return true;
+                }
+            } else if (pinchZoomActive || pinchCtrlPressed) {
+                resetPinchZoom();
             }
             // NEW: 한 손가락 스크롤(드래그가 아닌 경우)
             // - 드래그(mIsDragging)는 그대로 유지해야 하므로 제외
-            if (pointerCount == 1 && !mIsDragging) {
+            if (pointerCount == 1 && !mIsDragging && oneFingerScrollEnabled) {
+                resetPinchZoom();
                 mInputStrategy.onScroll(distanceX, distanceY);
                 mSuppressCursorMovement = true;
                 return true;
