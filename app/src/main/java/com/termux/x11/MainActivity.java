@@ -92,6 +92,8 @@ public class MainActivity extends AppCompatActivity {
     private boolean filterOutWinKey = false;
     boolean useTermuxEKBarBehaviour = false;
     private boolean isInPictureInPictureMode = false;
+    private boolean shouldAttemptReconnect = true;
+    private boolean hasDisconnected = false;
 
     public static Prefs prefs = null;
 
@@ -252,6 +254,8 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
+        if (!isChangingConfigurations())
+            disconnectFromServer();
         unregisterReceiver(receiver);
         super.onDestroy();
     }
@@ -538,12 +542,16 @@ public class MainActivity extends AppCompatActivity {
     }
 
     boolean tryConnect() {
+        if (!shouldAttemptReconnect)
+            return false;
+
         if (LorieView.connected())
             return false;
 
         if (service == null) {
             boolean sent = LorieView.requestConnection();
-            handler.postDelayed(this::tryConnect, 250);
+            if (shouldAttemptReconnect)
+                handler.postDelayed(this::tryConnect, 250);
             return true;
         }
 
@@ -556,12 +564,14 @@ public class MainActivity extends AppCompatActivity {
                 clientConnectedStateChanged();
                 getLorieView().reloadPreferences(prefs);
             } else
-                handler.postDelayed(this::tryConnect, 250);
+                if (shouldAttemptReconnect)
+                    handler.postDelayed(this::tryConnect, 250);
         } catch (Exception e) {
             Log.e("MainActivity", "Something went wrong while we were establishing connection", e);
             service = null;
 
-            handler.postDelayed(this::tryConnect, 250);
+            if (shouldAttemptReconnect)
+                handler.postDelayed(this::tryConnect, 250);
         }
         return false;
     }
@@ -572,6 +582,20 @@ public class MainActivity extends AppCompatActivity {
 
         handler.removeCallbacks(this::onPreferencesChangedCallback);
         handler.postDelayed(this::onPreferencesChangedCallback, 100);
+    }
+
+    private void disconnectFromServer() {
+        if (hasDisconnected)
+            return;
+
+        hasDisconnected = true;
+        shouldAttemptReconnect = false;
+        handler.removeCallbacksAndMessages(null);
+
+        service = null;
+
+        if (LorieView.connected())
+            LorieView.connect(-1);
     }
 
     @SuppressLint("UnsafeIntentLaunch")
