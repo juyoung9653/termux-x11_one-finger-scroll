@@ -37,6 +37,8 @@
         <SwitchPreferenceCompat app:key="oneFingerScroll" app:defaultValue="true" />
         <SwitchPreferenceCompat app:key="pinchZoom" app:defaultValue="true" />
         <SeekBarPreference app:key="pinchZoomSensitivity" app:defaultValue="100" app:min="25" android:max="300" app:seekBarIncrement="5" app:showSeekBarValue="true" app:updatesContinuously="true" />
+        <SwitchPreferenceCompat app:key="leftEdgeSwipeBack" app:defaultValue="false" />
+        <SwitchPreferenceCompat app:key="rightEdgeSwipeForward" app:defaultValue="false" />
     </PreferenceScreen>
     <PreferenceScreen app:key="kbd">
         <SwitchPreferenceCompat app:key="showAdditionalKbd" app:defaultValue="true" />

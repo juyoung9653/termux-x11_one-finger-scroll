@@ -72,6 +72,10 @@ E.g. <b>META</b> for <i>META key</i>, \n
     <string name="pref_pinchZoom_summary">Pinch gesture sends Ctrl + mouse wheel for zoom on the remote display.</string>
     <string name="pref_pinchZoomSensitivity">Pinch zoom sensitivity, %</string>
     <string name="pref_pinchZoomSensitivity_summary">Adjust how quickly zoom changes while pinching.</string>
+    <string name="pref_leftEdgeSwipeBack">Left edge swipe for back</string>
+    <string name="pref_leftEdgeSwipeBack_summary">Swipe from the left edge to trigger Android back button.</string>
+    <string name="pref_rightEdgeSwipeForward">Right edge swipe for forward</string>
+    <string name="pref_rightEdgeSwipeForward_summary">Swipe from the right edge to trigger forward navigation.</string>
 
     <string name="pref_showAdditionalKbd">Show additional keyboard</string>
     <string name="pref_showAdditionalKbd_summary">Show keyboard with additional keys.</string>

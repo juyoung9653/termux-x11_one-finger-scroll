@@ -110,8 +110,15 @@ public class TouchInputHandler {
     private float pinchLastSpan = 0f;
     private boolean pinchCtrlPressed = false;
     private boolean oneFingerScrollActive = false;
+    private boolean leftEdgeSwipeBackEnabled = false;
+    private boolean rightEdgeSwipeForwardEnabled = false;
+    private boolean edgeSwipeActive = false;
+    private float edgeSwipeStartX = 0f;
+    private float edgeSwipeStartY = 0f;
 
     private static final float PINCH_MIN_SPAN_DELTA = 1.0f;
+    private static final float EDGE_SWIPE_THRESHOLD = 50f; // pixels from edge to trigger
+    private static final float EDGE_SWIPE_MIN_DISTANCE = 100f; // minimum swipe distance
 
     /**
      * Used for tracking swipe gestures. Only the Y-direction is needed for responding to swipe-up
@@ -347,7 +354,13 @@ public class TouchInputHandler {
                     mSwipeCompleted = false;
                     mIsDragging = false;
                     oneFingerScrollActive = false;
+                    edgeSwipeActive = false;
                     resetPinchZoom();
+                    
+                    // Check for edge swipe gesture
+                    if (handleEdgeSwipe(event)) {
+                        return true;
+                    }
                     break;
 
                 case MotionEvent.ACTION_SCROLL:
@@ -360,10 +373,12 @@ public class TouchInputHandler {
                 case MotionEvent.ACTION_POINTER_DOWN:
                     mTotalMotionY = 0;
                     oneFingerScrollActive = false;
+                    edgeSwipeActive = false;
                     break;
 
                 case MotionEvent.ACTION_POINTER_UP:
                     oneFingerScrollActive = false;
+                    edgeSwipeActive = false;
                     resetPinchZoom();
                     mSuppressCursorMovement = false;
                     break;
@@ -371,6 +386,7 @@ public class TouchInputHandler {
                 case MotionEvent.ACTION_UP:
                 case MotionEvent.ACTION_CANCEL:
                     oneFingerScrollActive = false;
+                    edgeSwipeActive = false;
                     resetPinchZoom();
                     break;
 
@@ -463,6 +479,8 @@ public class TouchInputHandler {
         oneFingerScrollEnabled = p.oneFingerScroll.get();
         pinchZoomEnabled = p.pinchZoom.get();
         pinchZoomSensitivityFactor = Math.max(0.1f, ((float) p.pinchZoomSensitivity.get()) / 100f);
+        leftEdgeSwipeBackEnabled = p.leftEdgeSwipeBack.get();
+        rightEdgeSwipeForwardEnabled = p.rightEdgeSwipeForward.get();
         if (!pinchZoomEnabled)
             resetPinchZoom();
         switch (p.transformCapturedPointer.get()) {
@@ -627,6 +645,67 @@ public class TouchInputHandler {
         ensureCtrlModifier(false);
     }
 
+    private boolean isNearLeftEdge(float x) {
+        return x <= EDGE_SWIPE_THRESHOLD;
+    }
+
+    private boolean isNearRightEdge(float x) {
+        return x >= (mRenderData.screenWidth - EDGE_SWIPE_THRESHOLD);
+    }
+
+    private boolean handleEdgeSwipe(MotionEvent event) {
+        int action = event.getActionMasked();
+        
+        if (action == MotionEvent.ACTION_DOWN && event.getPointerCount() == 1) {
+            float x = event.getX();
+            float y = event.getY();
+            
+            if ((leftEdgeSwipeBackEnabled && isNearLeftEdge(x)) || 
+                (rightEdgeSwipeForwardEnabled && isNearRightEdge(x))) {
+                edgeSwipeActive = true;
+                edgeSwipeStartX = x;
+                edgeSwipeStartY = y;
+                return false; // Don't consume yet, wait for movement
+            }
+        } else if (action == MotionEvent.ACTION_MOVE && edgeSwipeActive && event.getPointerCount() == 1) {
+            float dx = event.getX() - edgeSwipeStartX;
+            float dy = event.getY() - edgeSwipeStartY;
+            float distance = (float) Math.hypot(dx, dy);
+            
+            // Check if swipe distance is sufficient
+            if (distance >= EDGE_SWIPE_MIN_DISTANCE) {
+                // Left edge swipe (swipe right)
+                if (leftEdgeSwipeBackEnabled && isNearLeftEdge(edgeSwipeStartX) && dx > EDGE_SWIPE_MIN_DISTANCE) {
+                    // Trigger Android back action
+                    mInjector.sendKeyEvent(0, KEYCODE_BACK, true);
+                    mInjector.sendKeyEvent(0, KEYCODE_BACK, false);
+                    edgeSwipeActive = false;
+                    return true;
+                }
+                // Right edge swipe (swipe left)
+                else if (rightEdgeSwipeForwardEnabled && isNearRightEdge(edgeSwipeStartX) && dx < -EDGE_SWIPE_MIN_DISTANCE) {
+                    // Trigger forward action (Alt+Right)
+                    long eventTime = SystemClock.uptimeMillis();
+                    KeyEvent altDown = new KeyEvent(eventTime, eventTime, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ALT_LEFT, 0, KeyEvent.META_ALT_LEFT_ON | KeyEvent.META_ALT_ON);
+                    KeyEvent rightDown = new KeyEvent(eventTime, eventTime, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_RIGHT, 0, KeyEvent.META_ALT_LEFT_ON | KeyEvent.META_ALT_ON);
+                    KeyEvent rightUp = new KeyEvent(eventTime, eventTime, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_RIGHT, 0, KeyEvent.META_ALT_LEFT_ON | KeyEvent.META_ALT_ON);
+                    KeyEvent altUp = new KeyEvent(eventTime, eventTime, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ALT_LEFT, 0, 0);
+                    
+                    mInjector.sendKeyEvent(altDown);
+                    mInjector.sendKeyEvent(rightDown);
+                    mInjector.sendKeyEvent(rightUp);
+                    mInjector.sendKeyEvent(altUp);
+                    edgeSwipeActive = false;
+                    return true;
+                }
+            }
+        } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL || action == MotionEvent.ACTION_POINTER_DOWN) {
+            edgeSwipeActive = false;
+        }
+        
+        return false;
+    }
+
     private boolean handlePinchZoom(MotionEvent event) {
         if (!pinchZoomEnabled) {
             resetPinchZoom();
@@ -688,6 +767,14 @@ public class TouchInputHandler {
         public boolean onScroll(MotionEvent e1, MotionEvent e2, float distanceX, float distanceY) {
             int pointerCount = e2.getPointerCount();
 
+            // Handle edge swipe - check movement and trigger action if applicable
+            if (edgeSwipeActive && pointerCount == 1) {
+                if (handleEdgeSwipe(e2)) {
+                    mSuppressCursorMovement = true;
+                    return true;
+                }
+            }
+
             // For captured touchpad pointer:
             // Automatic (for touchpad) mode is needed because touchpads ignore screen orientation and report physical X and Y
             if ((e2.getSource() & InputDevice.SOURCE_TOUCHPAD) == InputDevice.SOURCE_TOUCHPAD
@@ -745,7 +832,8 @@ public class TouchInputHandler {
             }
             // NEW: 한 손가락 스크롤(드래그가 아닌 경우)
             // - 드래그(mIsDragging)는 그대로 유지해야 하므로 제외
-            if (pointerCount == 1 && !mIsDragging && oneFingerScrollEnabled) {
+            // - 엣지 스와이프(edgeSwipeActive)는 제외
+            if (pointerCount == 1 && !mIsDragging && !edgeSwipeActive && oneFingerScrollEnabled) {
                 if (!oneFingerScrollActive) {
                     oneFingerScrollActive = true;
                     PointF cursor = mRenderData.getCursorPosition();
