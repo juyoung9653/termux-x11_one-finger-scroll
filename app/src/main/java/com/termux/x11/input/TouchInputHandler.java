@@ -677,8 +677,11 @@ public class TouchInputHandler {
                 // Left edge swipe (swipe right)
                 if (leftEdgeSwipeBackEnabled && isNearLeftEdge(edgeSwipeStartX) && dx > EDGE_SWIPE_MIN_DISTANCE) {
                     // Trigger Android back action
-                    mInjector.sendKeyEvent(0, KEYCODE_BACK, true);
-                    mInjector.sendKeyEvent(0, KEYCODE_BACK, false);
+                    long eventTime = SystemClock.uptimeMillis();
+                    KeyEvent backDown = new KeyEvent(eventTime, eventTime, KeyEvent.ACTION_DOWN, KEYCODE_BACK, 0);
+                    KeyEvent backUp = new KeyEvent(eventTime, eventTime, KeyEvent.ACTION_UP, KEYCODE_BACK, 0);
+                    mInjector.sendKeyEvent(backDown);
+                    mInjector.sendKeyEvent(backUp);
                     edgeSwipeActive = false;
                     return true;
                 }
